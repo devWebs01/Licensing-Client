@@ -109,7 +109,11 @@ class LicenseCacheService
             return 0;
         }
 
-        return max(0, now()->diffInDays($offlineUntil, false));
+        try {
+            return max(0, (int) now()->startOfDay()->diffInDays(now()->parse($offlineUntil)->startOfDay()));
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 
     public function detectClockDrift(array $token): bool

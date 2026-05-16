@@ -49,8 +49,28 @@
                 <div class="code">{{ $activation_code }}</div>
                 <p style="font-size:0.875rem;">Berikan kode ini ke admin untuk di-approve.</p>
             </div>
-            <p style="text-align:center;font-size:0.875rem;">Halaman ini akan auto-refresh setiap 30 detik.</p>
-            <script>setTimeout(function(){ location.reload(); }, 30000);</script>
+            <div id="poll-status" style="text-align:center;font-size:0.875rem;color:#6b7280;">Memeriksa status aktivasi...</div>
+            <script>
+            (function() {
+                var pollUrl = '{{ route('licensing.poll') }}';
+                var check = function() {
+                    fetch(pollUrl)
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.approved) {
+                                document.getElementById('poll-status').innerText = 'Aktivasi disetujui! Mengarahkan...';
+                                window.location.href = '/';
+                            } else {
+                                setTimeout(check, 5000);
+                            }
+                        })
+                        .catch(function() {
+                            setTimeout(check, 10000);
+                        });
+                };
+                setTimeout(check, 3000);
+            })();
+            </script>
 
         @elseif(isset($status))
             <h1>Status Lisensi</h1>
@@ -92,7 +112,7 @@
                 <h1>Masukkan Lisensi</h1>
                 <p>Masukkan license key yang Anda dapatkan dari admin.</p>
 
-                @if($errors->any())
+                @if(isset($errors) && $errors->any())
                     <div class="error">{{ $errors->first('license_key') }}</div>
                 @endif
 

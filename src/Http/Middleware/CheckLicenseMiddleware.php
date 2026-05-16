@@ -3,6 +3,7 @@
 namespace DevWebs01\LicensingClient\Http\Middleware;
 
 use Closure;
+use DevWebs01\LicensingClient\Enums\LicenseStatus;
 use DevWebs01\LicensingClient\Exceptions\ClockDriftDetectedException;
 use DevWebs01\LicensingClient\Exceptions\LicenseNotActivatedException;
 use DevWebs01\LicensingClient\Exceptions\ServerUnreachableException;
@@ -20,6 +21,10 @@ class CheckLicenseMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         if ($this->isDevelopmentBypass()) {
+            return $next($request);
+        }
+
+        if ($this->isExcludedRoute($request)) {
             return $next($request);
         }
 
@@ -46,6 +51,10 @@ class CheckLicenseMiddleware
                 }
 
                 return null;
+            }
+
+            if ($info->status === LicenseStatus::NotActivated) {
+                return $this->redirectToWizard();
             }
 
             if ($info->status->isBlocking()) {
@@ -109,6 +118,19 @@ class CheckLicenseMiddleware
     private function redirectToWizard(): Response
     {
         return redirect()->route('licensing.activate');
+    }
+
+    private function isExcludedRoute(Request $request): bool
+    {
+        $excluded = config('licensing-client.excluded_routes', []);
+
+        foreach ($excluded as $route) {
+            if ($request->is($route)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isDevelopmentBypass(): bool

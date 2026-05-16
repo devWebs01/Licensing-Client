@@ -16,6 +16,8 @@ class TestCase extends Orchestra
 
     protected function defineEnvironment($app): void
     {
+        $app['config']->set('app.key', 'base64:3Hv3aPwvX4r5s6t7u8v9w0x1y2z3A4B5C6D7E8F9G0H=');
+        $app['config']->set('app.cipher', 'AES-256-CBC');
         $app['config']->set('licensing-client.server_url', 'https://monitor.test');
         $app['config']->set('licensing-client.license_key', 'TEST-ABCD-EFGH-1234');
         $app['config']->set('licensing-client.environment', 'production');

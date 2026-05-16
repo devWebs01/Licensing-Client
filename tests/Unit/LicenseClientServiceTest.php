@@ -6,6 +6,7 @@ use DevWebs01\LicensingClient\Enums\LicenseStatus;
 use DevWebs01\LicensingClient\Exceptions\LicenseNotActivatedException;
 use DevWebs01\LicensingClient\Exceptions\ServerUnreachableException;
 use DevWebs01\LicensingClient\Services\FingerprintCollector;
+use Illuminate\Http\Client\ConnectionException;
 use DevWebs01\LicensingClient\Services\LicenseCacheService;
 use DevWebs01\LicensingClient\Services\LicenseClientService;
 use DevWebs01\LicensingClient\Tests\TestCase;
@@ -124,7 +125,9 @@ class LicenseClientServiceTest extends TestCase
     public function test_validate_online_throws_on_network_error(): void
     {
         Http::fake([
-            'monitor.test/api/v1/validate' => Http::response([], 500),
+            'monitor.test/api/v1/validate' => function () {
+                throw new ConnectionException('Connection timeout');
+            },
         ]);
 
         $this->expectException(ServerUnreachableException::class);

@@ -54,9 +54,10 @@ class LicenseClientService
             }
 
             $result = ActivationResult::fromArray($response->json());
+            $serverTime = $response->header('Date');
 
             if ($result->success && ! $result->requiresApproval) {
-                $this->storeTokenFromValidation($licenseKey, $fingerprint, $result->offlineUntil);
+                $this->storeTokenFromValidation($licenseKey, $fingerprint, $result->offlineUntil, $serverTime);
             }
 
             return $result;
@@ -84,9 +85,10 @@ class LicenseClientService
             }
 
             $data = $response->json('data', []);
+            $serverTime = $response->header('Date');
 
             if ($data['valid'] ?? false) {
-                $this->storeTokenFromValidation($licenseKey, $fingerprint, $data['offline_until'] ?? null);
+                $this->storeTokenFromValidation($licenseKey, $fingerprint, $data['offline_until'] ?? null, $serverTime);
 
                 return true;
             }
@@ -111,10 +113,15 @@ class LicenseClientService
                     ],
                 ]);
 
+            if ($response->failed() && $response->status() !== 403) {
+                throw new ServerUnreachableException;
+            }
+
             $result = ValidationResult::fromArray($response->json());
+            $serverTime = $response->header('Date');
 
             if ($result->valid) {
-                $this->cacheTokenFromServer($licenseKey, $fingerprint, $result);
+                $this->cacheTokenFromServer($licenseKey, $fingerprint, $result, $serverTime);
             }
 
             if ($response->status() === 403) {
@@ -260,6 +267,11 @@ class LicenseClientService
         return in_array($feature, $features, true);
     }
 
+    public function info(): LicenseInfo
+    {
+        return $this->status();
+    }
+
     public function isValid(): bool
     {
         try {
@@ -271,7 +283,7 @@ class LicenseClientService
         }
     }
 
-    private function storeTokenFromValidation(string $licenseKey, string $fingerprint, ?string $offlineUntil): void
+    private function storeTokenFromValidation(string $licenseKey, string $fingerprint, ?string $offlineUntil, ?string $serverTime = null): void
     {
         $offlineUntilDate = $offlineUntil
             ? now()->parse($offlineUntil)
@@ -284,12 +296,12 @@ class LicenseClientService
             'product' => $this->appName,
             'expires_at' => $offlineUntilDate->toDateString(),
             'offline_until' => $offlineUntilDate->toIso8601String(),
-            'server_time' => now()->toIso8601String(),
+            'server_time' => $this->resolveServerTime($serverTime),
             'features' => [],
         ]);
     }
 
-    private function cacheTokenFromServer(string $licenseKey, string $fingerprint, ValidationResult $result): void
+    private function cacheTokenFromServer(string $licenseKey, string $fingerprint, ValidationResult $result, ?string $serverTime = null): void
     {
         $offlineUntil = $result->offlineUntil
             ? now()->parse($result->offlineUntil)
@@ -302,9 +314,22 @@ class LicenseClientService
             'product' => $result->product ?? $this->appName,
             'expires_at' => $result->expiresAt,
             'offline_until' => $offlineUntil->toIso8601String(),
-            'server_time' => now()->toIso8601String(),
+            'server_time' => $this->resolveServerTime($serverTime),
             'features' => $result->features,
         ]);
+    }
+
+    private function resolveServerTime(?string $httpDate): string
+    {
+        if ($httpDate === null) {
+            return now()->toIso8601String();
+        }
+
+        try {
+            return now()->parse($httpDate)->toIso8601String();
+        } catch (\Throwable) {
+            return now()->toIso8601String();
+        }
     }
 
     private function resolveLicenseKey(): string

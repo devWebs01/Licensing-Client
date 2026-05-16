@@ -3,6 +3,7 @@
 namespace DevWebs01\LicensingClient\Commands;
 
 use DevWebs01\LicensingClient\Services\FingerprintCollector;
+use DevWebs01\LicensingClient\Services\LicenseCacheService;
 use DevWebs01\LicensingClient\Services\LicenseClientService;
 use Illuminate\Console\Command;
 

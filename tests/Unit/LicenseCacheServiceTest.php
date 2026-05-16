@@ -102,8 +102,9 @@ class LicenseCacheServiceTest extends TestCase
 
     public function test_grace_days_remaining_returns_correct_count(): void
     {
+        $future = now()->addDays(3)->startOfDay()->addHours(12);
         $token = [
-            'offline_until' => now()->addDays(3)->toIso8601String(),
+            'offline_until' => $future->toIso8601String(),
         ];
 
         $this->assertSame(3, $this->cacheService->graceDaysRemaining($token));
