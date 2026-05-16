@@ -1,0 +1,82 @@
+{
+  "$schema": "https://opencode.ai/opencode-schema.json",
+  "name": "Laravel Licensing Client",
+  "description": "DevWebs01 licensing client package development",
+
+  "customModes": [
+    {
+      "slug": "license-package-dev",
+      "name": "Package Developer",
+      "role": "You are building a Laravel Composer package for license management. You have access to all necessary tools.",
+      "groups": [
+        "read",
+        ["edit", { "fileRegex": "\\.(php|json|xml|md|env|blade\\.php)$" }],
+        "write",
+        "browser",
+        "command",
+        "mcp"
+      ]
+    }
+  ],
+
+  "agents": {
+    "license-tester": {
+      "description": "Run PHPUnit tests for the licensing package",
+      "system": "You are a QA agent. Run tests and report failures.",
+      "groups": ["read", "command"]
+    },
+    "license-artisan": {
+      "description": "Artisan command specialist for Laravel package",
+      "system": "You help with artisan command implementation and testing.",
+      "groups": ["read", "edit", "command"]
+    },
+    "license-views": {
+      "description": "Blade view and component specialist",
+      "system": "You build Blade views and components for the licensing wizard UI.",
+      "groups": ["read", "edit", "browser"]
+    }
+  },
+
+  "mcpServers": {
+    "laraplugins": {
+      "type": "http",
+      "url": "https://laraplugins.io/mcp/plugins",
+      "description": "Discover Laravel packages, check health scores, and verify compatibility"
+    },
+    "github": {
+      "type": "stdio",
+      "command": "gh",
+      "args": ["mcp"],
+      "description": "GitHub operations: issues, PRs, releases"
+    }
+  },
+
+  "rules": [
+    "Always run `composer validate` before committing",
+    "Run `vendor/bin/pint --test` for code style before PR",
+    "Run `phpunit` for all tests before pushing",
+    "Never add database migrations - this package uses zero database migrations",
+    "All cache operations must use Laravel Cache facade, not direct file access",
+    "All encrypted data must use Crypt::encryptString / Crypt::decryptString",
+    "All HTTP calls must use Laravel Http facade with Guzzle",
+    "Support Laravel ^10.0|^11.0|^12.0|^13.0 - test with Orchestra Testbench",
+    "Follow PSR-4 autoloading: DevWebs01\\LicensingClient\\ namespace in src/"
+  ],
+
+  "scripts": {
+    "setup": "composer install",
+    "test": "vendor/bin/phpunit",
+    "test:coverage": "XDEBUG_MODE=coverage vendor/bin/phpunit --coverage-html coverage",
+    "lint": "vendor/bin/pint --test",
+    "lint:fix": "vendor/bin/pint",
+    "validate": "composer validate && vendor/bin/pint --test && vendor/bin/phpunit"
+  },
+
+  "env": {
+    "LICENSING_SERVER_URL": "https://monitor.devwebs01.com",
+    "LICENSING_ENV": "development",
+    "LICENSING_GRACE_DAYS": "7",
+    "LICENSING_CACHE_TTL": "3600",
+    "LICENSING_TIMEOUT": "10"
+  }
+}
