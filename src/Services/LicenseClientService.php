@@ -12,7 +12,7 @@ use DevWebs01\LicensingClient\ValueObjects\ValidationResult;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
-class LicenseClientService
+final class LicenseClientService
 {
     public function __construct(
         private readonly LicenseCacheService $cache,

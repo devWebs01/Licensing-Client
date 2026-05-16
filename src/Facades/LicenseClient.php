@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static bool deactivate()
  * @method static bool hasFeature(string $feature)
  */
-class LicenseClient extends Facade
+final class LicenseClient extends Facade
 {
     protected static function getFacadeAccessor(): string
     {

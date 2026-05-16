@@ -12,6 +12,9 @@ readonly class ActivationResult
         public ?string $message = null,
     ) {}
 
+    /**
+     * @param  array<string, mixed>  $data
+     */
     public static function fromArray(array $data): self
     {
         $payload = $data['data'] ?? [];

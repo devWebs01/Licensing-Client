@@ -6,7 +6,7 @@ use DevWebs01\LicensingClient\Facades\LicenseClient;
 use Illuminate\Contracts\View\View;
 use Illuminate\View\Component;
 
-class CountdownWarning extends Component
+final class CountdownWarning extends Component
 {
     public int $daysRemaining;
 
@@ -28,6 +28,7 @@ class CountdownWarning extends Component
 
     public function render(): View
     {
+        /** @phpstan-ignore argument.type */
         return view('licensing::components.countdown-warning');
     }
 }

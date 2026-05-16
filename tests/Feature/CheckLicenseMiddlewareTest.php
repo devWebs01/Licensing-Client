@@ -18,7 +18,6 @@ class CheckLicenseMiddlewareTest extends TestCase
         parent::setUp();
 
         $this->cacheService = new LicenseCacheService(
-            graceDays: 7,
             cacheStore: 'array'
         );
 

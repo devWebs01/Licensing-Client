@@ -7,7 +7,7 @@ use DevWebs01\LicensingClient\Services\LicenseCacheService;
 use DevWebs01\LicensingClient\Services\LicenseClientService;
 use Illuminate\Console\Command;
 
-class LicenseStatusCommand extends Command
+final class LicenseStatusCommand extends Command
 {
     protected $signature = 'license:status';
 

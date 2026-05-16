@@ -6,6 +6,9 @@ use DevWebs01\LicensingClient\Enums\LicenseStatus;
 
 readonly class ValidationResult
 {
+    /**
+     * @param  array<int, string>  $features
+     */
     public function __construct(
         public bool $valid,
         public LicenseStatus $status = LicenseStatus::Unknown,
@@ -18,6 +21,9 @@ readonly class ValidationResult
         public array $features = [],
     ) {}
 
+    /**
+     * @param  array<string, mixed>  $data
+     */
     public static function fromArray(array $data): self
     {
         $payload = $data['data'] ?? [];

@@ -13,10 +13,21 @@ final class ActivateRequest extends FormRequest
         return true;
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     public function rules(): array
     {
         return [
             'license_key' => ['required', 'string'],
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toDto(): array
+    {
+        return $this->validated();
     }
 }

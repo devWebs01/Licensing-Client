@@ -6,7 +6,7 @@ use DevWebs01\LicensingClient\Exceptions\CorruptedTokenException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 
-class LicenseCacheService
+final class LicenseCacheService
 {
     const CACHE_KEY_TOKEN = 'licensing:token';
 
@@ -17,10 +17,12 @@ class LicenseCacheService
     const TOKEN_VERSION = 1;
 
     public function __construct(
-        private readonly int $graceDays,
         private readonly ?string $cacheStore = null,
     ) {}
 
+    /**
+     * @param  array<string, mixed>  $tokenData
+     */
     public function storeToken(array $tokenData): void
     {
         $tokenData['version'] = self::TOKEN_VERSION;
@@ -45,6 +47,9 @@ class LicenseCacheService
         );
     }
 
+    /**
+     * @return array<string, mixed>|null
+     */
     public function retrieveToken(): ?array
     {
         $encrypted = Cache::store($this->cacheStore)->get(self::CACHE_KEY_TOKEN);
@@ -86,11 +91,17 @@ class LicenseCacheService
         Cache::store($this->cacheStore)->forget(self::CACHE_KEY_META);
     }
 
+    /**
+     * @param  array<string, mixed>  $token
+     */
     public function getOfflineUntil(array $token): ?string
     {
         return $token['offline_until'] ?? null;
     }
 
+    /**
+     * @param  array<string, mixed>  $token
+     */
     public function isWithinGracePeriod(array $token): bool
     {
         $offlineUntil = $this->getOfflineUntil($token);
@@ -102,6 +113,9 @@ class LicenseCacheService
         return now()->lessThanOrEqualTo($offlineUntil);
     }
 
+    /**
+     * @param  array<string, mixed>  $token
+     */
     public function graceDaysRemaining(array $token): int
     {
         $offlineUntil = $this->getOfflineUntil($token);
@@ -120,6 +134,9 @@ class LicenseCacheService
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $token
+     */
     public function detectClockDrift(array $token): bool
     {
         try {
@@ -144,6 +161,9 @@ class LicenseCacheService
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $tokenData
+     */
     private function computeHmac(array $tokenData): string
     {
         $payload = ($tokenData['license_key'] ?? '')
@@ -153,6 +173,9 @@ class LicenseCacheService
         return hash_hmac('sha256', $payload, $this->getHmacSecret());
     }
 
+    /**
+     * @param  array<string, mixed>  $token
+     */
     private function verifyIntegrity(array $token): bool
     {
         $expectedHmac = $token['hmac'] ?? '';

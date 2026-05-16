@@ -5,7 +5,7 @@ namespace DevWebs01\LicensingClient\Commands;
 use DevWebs01\LicensingClient\Services\LicenseClientService;
 use Illuminate\Console\Command;
 
-class LicenseActivateCommand extends Command
+final class LicenseActivateCommand extends Command
 {
     protected $signature = 'license:activate {key : License key (format: XXXX-XXXX-XXXX-XXXX)}';
 

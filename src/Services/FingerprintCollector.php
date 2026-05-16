@@ -2,7 +2,7 @@
 
 namespace DevWebs01\LicensingClient\Services;
 
-class FingerprintCollector
+final class FingerprintCollector
 {
     private ?string $cachedFingerprint = null;
 
@@ -37,6 +37,9 @@ class FingerprintCollector
         return $this->collect();
     }
 
+    /**
+     * @return array<string, string>
+     */
     public function collectData(): array
     {
         return [

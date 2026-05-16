@@ -13,7 +13,7 @@ use DevWebs01\LicensingClient\Services\LicenseCacheService;
 use DevWebs01\LicensingClient\Services\LicenseClientService;
 use Illuminate\Support\ServiceProvider;
 
-class LicensingClientServiceProvider extends ServiceProvider
+final class LicensingClientServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
@@ -26,7 +26,6 @@ class LicensingClientServiceProvider extends ServiceProvider
 
         $this->app->singleton(LicenseCacheService::class, function () {
             return new LicenseCacheService(
-                graceDays: (int) config('licensing-client.grace_days', 7),
                 cacheStore: config('licensing-client.cache.store'),
             );
         });

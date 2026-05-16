@@ -11,7 +11,7 @@ use DevWebs01\LicensingClient\Services\LicenseClientService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-class CheckLicenseMiddleware
+final class CheckLicenseMiddleware
 {
     public function __construct(
         private readonly LicenseClientService $licenseService,

@@ -5,7 +5,7 @@ namespace DevWebs01\LicensingClient;
 use DevWebs01\LicensingClient\Facades\LicenseClient;
 use Illuminate\Support\Facades\Blade;
 
-class BladeDirectives
+final class BladeDirectives
 {
     public static function register(): void
     {
