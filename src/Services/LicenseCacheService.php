@@ -197,6 +197,10 @@ final class LicenseCacheService
     {
         $appKey = config('app.key');
 
-        return $appKey ?: 'default-secret-do-not-use';
+        if (! $appKey) {
+            throw new \RuntimeException('APP_KEY tidak dikonfigurasi. Setel APP_KEY sebelum menggunakan lisensi offline.');
+        }
+
+        return $appKey;
     }
 }

@@ -11,7 +11,7 @@ use DevWebs01\LicensingClient\Services\LicenseClientService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
-final class CheckLicenseMiddleware
+class CheckLicenseMiddleware
 {
     public function __construct(
         private readonly LicenseClientService $licenseService,
@@ -27,13 +27,7 @@ final class CheckLicenseMiddleware
             return $next($request);
         }
 
-        $step1 = $this->checkCache($request);
-
-        if ($step1 !== null) {
-            return $step1;
-        }
-
-        return $next($request);
+        return $this->checkCache($request) ?? $next($request);
     }
 
     private function checkCache(Request $request): ?Response
@@ -60,13 +54,13 @@ final class CheckLicenseMiddleware
                 return $this->lockResponse($info->status->value);
             }
 
-            return $this->validateOnline($request);
+            return $this->validateOnline();
         } catch (LicenseNotActivatedException) {
             return $this->redirectToWizard();
         }
     }
 
-    private function validateOnline(Request $request): ?Response
+    private function validateOnline(): ?Response
     {
         try {
             $result = $this->licenseService->validateOnline();
@@ -76,9 +70,7 @@ final class CheckLicenseMiddleware
             }
 
             return $this->validateGracePeriod();
-        } catch (ServerUnreachableException) {
-            return $this->validateGracePeriod();
-        } catch (ClockDriftDetectedException) {
+        } catch (ServerUnreachableException|ClockDriftDetectedException) {
             return $this->validateGracePeriod();
         }
     }
@@ -102,9 +94,7 @@ final class CheckLicenseMiddleware
             }
 
             return $this->lockResponse('grace_expired');
-        } catch (LicenseNotActivatedException) {
-            return $this->redirectToWizard();
-        } catch (ClockDriftDetectedException) {
+        } catch (LicenseNotActivatedException|ClockDriftDetectedException) {
             return $this->redirectToWizard();
         }
     }
@@ -124,7 +114,7 @@ final class CheckLicenseMiddleware
         $excluded = config('licensing-client.excluded_routes', []);
 
         foreach ($excluded as $route) {
-            if ($request->is($route)) {
+            if ($request->is($route) || $request->routeIs($route)) {
                 return true;
             }
         }
@@ -134,12 +124,12 @@ final class CheckLicenseMiddleware
 
     private function isDevelopmentBypass(): bool
     {
-        $env = config('licensing-client.environment', 'production');
-
-        if ($env !== 'production' && $env !== 'license') {
+        if ((bool) config('licensing-client.dev_bypass', false)) {
             return true;
         }
 
-        return (bool) config('licensing-client.dev_bypass', false);
+        $env = config('licensing-client.environment', 'production');
+
+        return ! in_array($env, ['production', 'license'], true);
     }
 }

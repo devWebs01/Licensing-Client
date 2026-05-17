@@ -10,14 +10,20 @@ use DevWebs01\LicensingClient\ValueObjects\ActivationResult;
 use DevWebs01\LicensingClient\ValueObjects\LicenseInfo;
 use DevWebs01\LicensingClient\ValueObjects\ValidationResult;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 final class LicenseClientService
 {
+    private const REQUEST_TIMEOUT = 10;
+
     public function __construct(
         private readonly LicenseCacheService $cache,
         private readonly FingerprintCollector $fingerprint,
         private readonly string $serverUrl,
+        private readonly string $apiKey,
+        private readonly string $apiSecret,
         private readonly string $licenseKey,
         private readonly string $appName,
         private readonly int $timeout,
@@ -30,17 +36,23 @@ final class LicenseClientService
         $deviceData = $this->fingerprint->collectData();
 
         try {
-            $response = Http::timeout($this->timeout)
-                ->post("{$this->serverUrl}/api/v1/activate", [
-                    'license_key' => $licenseKey,
-                    'device' => [
-                        'fingerprint' => $fingerprint,
-                        'name' => $deviceData['hostname'],
-                        'platform' => $deviceData['os'],
-                        'platform_version' => $deviceData['kernel'],
-                        'app_version' => config('app.version', '1.0.0'),
-                    ],
-                ]);
+            $response = $this->signedPost('/api/v1/activate', [
+                'license_key' => $licenseKey,
+                'device' => [
+                    'fingerprint' => $fingerprint,
+                    'name' => $deviceData['hostname'],
+                    'platform' => $deviceData['os'],
+                    'platform_version' => $deviceData['kernel'],
+                    'app_version' => config('app.version', '1.0.0'),
+                ],
+            ]);
+
+            if ($response->status() === 401) {
+                return new ActivationResult(
+                    success: false,
+                    message: 'Kredensial API tidak valid. Periksa LICENSING_API_KEY dan LICENSING_API_SECRET.',
+                );
+            }
 
             if ($response->failed()) {
                 return new ActivationResult(
@@ -71,10 +83,9 @@ final class LicenseClientService
         $licenseKey = $this->resolveLicenseKey();
 
         try {
-            $response = Http::timeout($this->timeout)
-                ->get("{$this->serverUrl}/api/v1/verify/{$licenseKey}/{$fingerprint}", [
-                    'code' => $code,
-                ]);
+            $response = $this->signedGet("/api/v1/verify/{$licenseKey}/{$fingerprint}", [
+                'code' => $code,
+            ]);
 
             if ($response->failed()) {
                 return false;
@@ -101,15 +112,30 @@ final class LicenseClientService
         $licenseKey = $this->resolveLicenseKey();
 
         try {
-            $response = Http::timeout($this->timeout)
-                ->post("{$this->serverUrl}/api/v1/validate", [
-                    'license_key' => $licenseKey,
-                    'device' => [
-                        'fingerprint' => $fingerprint,
-                    ],
-                ]);
+            $response = $this->signedPost('/api/v1/validate', [
+                'license_key' => $licenseKey,
+                'device' => [
+                    'fingerprint' => $fingerprint,
+                ],
+            ]);
 
-            if ($response->failed() && $response->status() !== 403) {
+            if ($response->status() === 401) {
+                throw new ServerUnreachableException('Kredensial API tidak valid');
+            }
+
+            if ($response->status() === 403) {
+                $this->cache->clearToken();
+                $message = $response->json('message', 'Lisensi tidak valid');
+                $status = $response->json('data.status', 'unknown');
+
+                return new ValidationResult(
+                    valid: false,
+                    status: LicenseStatus::tryFrom($status) ?? LicenseStatus::Unknown,
+                    message: $message,
+                );
+            }
+
+            if ($response->failed()) {
                 throw new ServerUnreachableException;
             }
 
@@ -118,10 +144,6 @@ final class LicenseClientService
 
             if ($result->valid) {
                 $this->cacheTokenFromServer($licenseKey, $fingerprint, $result, $serverTime);
-            }
-
-            if ($response->status() === 403) {
-                $this->cache->clearToken();
             }
 
             return $result;
@@ -138,12 +160,8 @@ final class LicenseClientService
             throw new LicenseNotActivatedException;
         }
 
-        try {
-            if ($this->cache->detectClockDrift($token)) {
-                throw new ClockDriftDetectedException;
-            }
-        } catch (ClockDriftDetectedException $e) {
-            throw $e;
+        if ($this->cache->detectClockDrift($token)) {
+            throw new ClockDriftDetectedException;
         }
 
         $withinGrace = $this->cache->isWithinGracePeriod($token);
@@ -171,13 +189,6 @@ final class LicenseClientService
     public function status(): LicenseInfo
     {
         $token = $this->cache->retrieveToken();
-        $withinGrace = false;
-        $daysRemaining = 0;
-
-        if ($token !== null) {
-            $withinGrace = $this->cache->isWithinGracePeriod($token);
-            $daysRemaining = $this->cache->graceDaysRemaining($token);
-        }
 
         if ($token === null) {
             return new LicenseInfo(
@@ -187,22 +198,21 @@ final class LicenseClientService
             );
         }
 
-        $status = LicenseStatus::tryFrom($token['status'] ?? '') ?? LicenseStatus::Unknown;
+        $withinGrace = $this->cache->isWithinGracePeriod($token);
+        $daysRemaining = $this->cache->graceDaysRemaining($token);
 
-        if ($token['offline_until'] !== null && now()->lessThanOrEqualTo($token['offline_until'])) {
-            $status = LicenseStatus::Active;
-        }
+        $status = LicenseStatus::tryFrom($token['status'] ?? '') ?? LicenseStatus::Unknown;
 
         if ($withinGrace && $daysRemaining <= 3 && $daysRemaining > 0) {
             $status = LicenseStatus::GraceWarning;
         }
 
-        if (! $withinGrace && $status === LicenseStatus::Active) {
+        if (! $withinGrace) {
             $status = LicenseStatus::Locked;
         }
 
         return new LicenseInfo(
-            isValid: $withinGrace && $status !== LicenseStatus::Locked,
+            isValid: $withinGrace,
             status: $status,
             offlineUntil: $token['offline_until'] ?? null,
             isWithinGracePeriod: $withinGrace,
@@ -230,13 +240,12 @@ final class LicenseClientService
         $licenseKey = $this->resolveLicenseKey();
 
         try {
-            $response = Http::timeout($this->timeout)
-                ->post("{$this->serverUrl}/api/v1/deactivate", [
-                    'license_key' => $licenseKey,
-                    'device' => [
-                        'fingerprint' => $fingerprint,
-                    ],
-                ]);
+            $response = $this->signedPost('/api/v1/deactivate', [
+                'license_key' => $licenseKey,
+                'device' => [
+                    'fingerprint' => $fingerprint,
+                ],
+            ]);
 
             if ($response->successful()) {
                 $this->cache->clearToken();
@@ -277,6 +286,53 @@ final class LicenseClientService
         } catch (LicenseNotActivatedException|ClockDriftDetectedException) {
             return false;
         }
+    }
+
+    private function signedPost(string $path, array $data): Response
+    {
+        return $this->signedRequest('POST', $path, $data);
+    }
+
+    private function signedGet(string $path, array $query = []): Response
+    {
+        return $this->signedRequest('GET', $path, $query);
+    }
+
+    private function signedRequest(string $method, string $path, array $data = []): Response
+    {
+        $timestamp = now()->toIso8601String();
+        $nonce = Str::random(32);
+        $body = '';
+        $path = '/'.ltrim($path, '/');
+        $url = $this->serverUrl.$path;
+        $signPath = ltrim($path, '/');
+
+        if ($method === 'GET') {
+            $payload = "{$method}\n{$signPath}\n{$timestamp}\n{$nonce}\n";
+            $url .= '?'.http_build_query($data);
+        } else {
+            $body = json_encode($data) ?: '';
+            $payload = "{$method}\n{$signPath}\n{$timestamp}\n{$nonce}\n{$body}";
+        }
+
+        $signature = base64_encode(
+            hash_hmac('sha256', $payload, $this->apiSecret, true)
+        );
+
+        $request = Http::timeout($this->timeout)
+            ->withHeaders([
+                'X-API-Key' => $this->apiKey,
+                'X-Timestamp' => $timestamp,
+                'X-Signature' => $signature,
+                'X-Nonce' => $nonce,
+                'Content-Type' => 'application/json',
+            ]);
+
+        if ($method === 'GET') {
+            return $request->get($url);
+        }
+
+        return $request->post($url, $data);
     }
 
     private function storeTokenFromValidation(string $licenseKey, string $fingerprint, ?string $offlineUntil, ?string $serverTime = null): void

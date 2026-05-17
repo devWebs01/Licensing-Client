@@ -1,5 +1,5 @@
 {
-    "name": "devwebs01/laravel-licensing-client",
+    "name": "devwebs01/laravel-license-client",
     "description": "Simple licensing client for Laravel applications - license validation, device fingerprinting, offline grace period, and feature flags.",
     "type": "library",
     "license": "MIT",

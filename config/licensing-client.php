@@ -3,6 +3,10 @@
 return [
     'server_url' => env('LICENSING_SERVER_URL'),
 
+    'api_key' => env('LICENSING_API_KEY'),
+
+    'api_secret' => env('LICENSING_API_SECRET'),
+
     'license_key' => env('LICENSING_KEY'),
 
     'app_name' => env('LICENSING_APP_NAME', env('APP_NAME')),
@@ -25,6 +29,17 @@ return [
         'register',
         'password/*',
         'licensing/*',
+        'email/*',
+        'two-factor*',
+        'user/*',
+        'up',
+        '_ignition/*',
+        'api/*',
+        'sanctum/*',
+        'broadcasting/*',
+        'livewire/*',
+        'telescope/*',
+        'horizon/*',
     ],
 
     'admin_contact' => env('LICENSING_ADMIN_CONTACT', 'admin@company.com'),

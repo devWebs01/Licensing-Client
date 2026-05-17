@@ -32,6 +32,8 @@ class LicenseClientServiceTest extends TestCase
             cache: $this->cacheService,
             fingerprint: new FingerprintCollector,
             serverUrl: 'https://monitor.test',
+            apiKey: 'test-api-key',
+            apiSecret: 'test-api-secret',
             licenseKey: 'TEST-ABCD-EFGH-1234',
             appName: 'Test App',
             timeout: 10,
