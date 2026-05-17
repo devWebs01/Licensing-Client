@@ -3,7 +3,6 @@
 namespace DevWebs01\LicensingClient\Tests\Unit;
 
 use DevWebs01\LicensingClient\Enums\LicenseStatus;
-use DevWebs01\LicensingClient\Exceptions\LicenseNotActivatedException;
 use DevWebs01\LicensingClient\Exceptions\ServerUnreachableException;
 use DevWebs01\LicensingClient\Services\FingerprintCollector;
 use DevWebs01\LicensingClient\Services\LicenseCacheService;
@@ -98,7 +97,7 @@ class LicenseClientServiceTest extends TestCase
         $this->assertNotNull($result->message);
     }
 
-    public function test_validate_online_returns_valid(): void
+    public function test_sync_returns_valid(): void
     {
         Http::fake([
             'monitor.test/api/v1/validate' => Http::response([
@@ -117,14 +116,14 @@ class LicenseClientServiceTest extends TestCase
             ]),
         ]);
 
-        $result = $this->service->validateOnline();
+        $result = $this->service->sync();
 
         $this->assertInstanceOf(ValidationResult::class, $result);
         $this->assertTrue($result->valid);
         $this->assertSame(LicenseStatus::Active, $result->status);
     }
 
-    public function test_validate_online_throws_on_network_error(): void
+    public function test_sync_throws_on_network_error(): void
     {
         Http::fake([
             'monitor.test/api/v1/validate' => function () {
@@ -134,33 +133,18 @@ class LicenseClientServiceTest extends TestCase
 
         $this->expectException(ServerUnreachableException::class);
 
-        $this->service->validateOnline();
+        $this->service->sync();
     }
 
-    public function test_validate_offline_uses_cached_token(): void
+    public function test_status_uses_memory_cache_within_request(): void
     {
-        $this->cacheService->storeToken([
-            'license_key' => 'TEST-ABCD-EFGH-1234',
-            'fingerprint' => (new FingerprintCollector)->fingerprint(),
-            'status' => 'active',
-            'product' => 'Test App',
-            'expires_at' => now()->addMonth()->toDateString(),
-            'offline_until' => now()->addDays(7)->toIso8601String(),
-            'server_time' => now()->toIso8601String(),
-            'features' => ['pos'],
-        ]);
+        $this->cacheService->storeStatus('active', true, now()->addDays(7)->toIso8601String());
 
-        $result = $this->service->validateOffline();
+        $info1 = $this->service->status();
+        $info2 = $this->service->status();
 
-        $this->assertTrue($result->valid);
-        $this->assertSame(LicenseStatus::Active, $result->status);
-    }
-
-    public function test_validate_offline_throws_when_no_cache(): void
-    {
-        $this->expectException(LicenseNotActivatedException::class);
-
-        $this->service->validateOffline();
+        $this->assertTrue($info1->isValid);
+        $this->assertTrue($info2->isValid);
     }
 
     public function test_deactivate_clears_cache(): void
@@ -210,21 +194,24 @@ class LicenseClientServiceTest extends TestCase
         $this->assertSame(LicenseStatus::NotActivated, $info->status);
     }
 
-    public function test_status_returns_active_when_cache_valid(): void
+    public function test_status_returns_active_when_status_cache_valid(): void
     {
-        $this->cacheService->storeToken([
-            'license_key' => 'TEST-ABCD-EFGH-1234',
-            'fingerprint' => (new FingerprintCollector)->fingerprint(),
-            'status' => 'active',
-            'product' => 'Test App',
-            'offline_until' => now()->addDays(7)->toIso8601String(),
-            'server_time' => now()->toIso8601String(),
-            'features' => [],
-        ]);
+        $this->cacheService->storeStatus('active', true, now()->addDays(7)->toIso8601String());
 
         $info = $this->service->status();
 
         $this->assertTrue($info->isValid);
-        $this->assertSame('Test App', $info->product);
+    }
+
+    public function test_is_valid_returns_false_when_no_status(): void
+    {
+        $this->assertFalse($this->service->isValid());
+    }
+
+    public function test_is_valid_returns_true_when_status_valid(): void
+    {
+        $this->cacheService->storeStatus('active', true, now()->addDays(7)->toIso8601String());
+
+        $this->assertTrue($this->service->isValid());
     }
 }

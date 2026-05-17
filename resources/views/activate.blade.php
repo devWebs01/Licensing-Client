@@ -32,7 +32,21 @@
 </head>
 <body>
     <div class="card">
-        @if (session('requires_approval'))
+        @php $hasConfig = config('licensing-client.server_url') && config('licensing-client.api_key'); @endphp
+
+        @if (!$hasConfig)
+            <h1>Setup Lisensi</h1>
+            <div class="info-box" style="background:#fef3c7;border-color:#f59e0b;color:#92400e;">
+                <p><strong>Lisensi belum dikonfigurasi.</strong></p>
+                <p style="margin-top:0.5rem;">Tambahkan konfigurasi berikut di file <code style="background:#fef9c3;padding:0.125rem 0.375rem;border-radius:4px;font-size:0.75rem;">.env</code>:</p>
+                <pre style="background:#fffbeb;padding:0.75rem;border-radius:6px;margin-top:0.5rem;font-size:0.75rem;overflow-x:auto;">LICENSING_SERVER_URL=http://license-monitor.test
+LICENSING_API_KEY=your_api_key
+LICENSING_API_SECRET=your_api_secret</pre>
+                <p style="margin-top:0.75rem;">Atau jalankan <code style="background:#fef9c3;padding:0.125rem 0.375rem;border-radius:4px;font-size:0.75rem;">php artisan license:check</code> untuk diagnose.</p>
+            </div>
+            <p style="text-align:center;font-size:0.875rem;color:#6b7280;">Setelah dikonfigurasi, refresh halaman ini.</p>
+
+        @elseif (session('requires_approval'))
             <h1>Menunggu Approval</h1>
             <div class="approval-box">
                 <p>Kode Aktivasi Anda:</p>

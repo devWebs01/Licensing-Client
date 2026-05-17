@@ -10,9 +10,9 @@ final class LicenseCacheService
 {
     const CACHE_KEY_TOKEN = 'licensing:token';
 
-    const CACHE_KEY_META = 'licensing:meta';
+    const CACHE_KEY_STATUS = 'licensing:status';
 
-    const CACHE_TTL = 3600;
+    const CACHE_KEY_META = 'licensing:meta';
 
     const TOKEN_VERSION = 1;
 
@@ -20,9 +20,67 @@ final class LicenseCacheService
         private readonly ?string $cacheStore = null,
     ) {}
 
-    /**
-     * @param  array<string, mixed>  $tokenData
-     */
+    public function storeStatus(string $status, bool $valid, string $offlineUntil): void
+    {
+        $data = [
+            'valid' => $valid,
+            'status' => $status,
+            'offline_until' => $offlineUntil,
+            'updated_at' => now()->toIso8601String(),
+        ];
+
+        $data['sig'] = $this->computeStatusHmac($data);
+
+        Cache::store($this->cacheStore)->put(
+            self::CACHE_KEY_STATUS,
+            $data,
+            now()->addDays(30),
+        );
+    }
+
+    public function retrieveStatus(): ?array
+    {
+        $data = Cache::store($this->cacheStore)->get(self::CACHE_KEY_STATUS);
+
+        if ($data === null) {
+            return null;
+        }
+
+        if (! is_array($data)) {
+            $this->clearStatus();
+
+            return null;
+        }
+
+        $expectedSig = $data['sig'] ?? '';
+
+        if (empty($expectedSig)) {
+            $this->clearStatus();
+
+            return null;
+        }
+
+        $computedSig = $this->computeStatusHmac($data);
+
+        if (! hash_equals($expectedSig, $computedSig)) {
+            $this->clearStatus();
+
+            return null;
+        }
+
+        return $data;
+    }
+
+    public function hasStatus(): bool
+    {
+        return Cache::store($this->cacheStore)->has(self::CACHE_KEY_STATUS);
+    }
+
+    public function clearStatus(): void
+    {
+        Cache::store($this->cacheStore)->forget(self::CACHE_KEY_STATUS);
+    }
+
     public function storeToken(array $tokenData): void
     {
         $tokenData['version'] = self::TOKEN_VERSION;
@@ -34,7 +92,7 @@ final class LicenseCacheService
         Cache::store($this->cacheStore)->put(
             self::CACHE_KEY_TOKEN,
             $encrypted,
-            now()->addDays(30)
+            now()->addDays(30),
         );
 
         Cache::store($this->cacheStore)->put(
@@ -43,13 +101,10 @@ final class LicenseCacheService
                 'cached_at' => $tokenData['cached_at'],
                 'fingerprint' => $tokenData['fingerprint'] ?? null,
             ],
-            now()->addDays(30)
+            now()->addDays(30),
         );
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
     public function retrieveToken(): ?array
     {
         $encrypted = Cache::store($this->cacheStore)->get(self::CACHE_KEY_TOKEN);
@@ -91,42 +146,15 @@ final class LicenseCacheService
         Cache::store($this->cacheStore)->forget(self::CACHE_KEY_META);
     }
 
-    /**
-     * @param  array<string, mixed>  $token
-     */
-    public function getOfflineUntil(array $token): ?string
+    public function isWithinGracePeriod(string $offlineUntil): bool
     {
-        return $token['offline_until'] ?? null;
-    }
-
-    /**
-     * @param  array<string, mixed>  $token
-     */
-    public function isWithinGracePeriod(array $token): bool
-    {
-        $offlineUntil = $this->getOfflineUntil($token);
-
-        if ($offlineUntil === null) {
-            return false;
-        }
-
         return now()->lessThanOrEqualTo($offlineUntil);
     }
 
-    /**
-     * @param  array<string, mixed>  $token
-     */
-    public function graceDaysRemaining(array $token): int
+    public function graceDaysRemaining(string $offlineUntil): int
     {
-        $offlineUntil = $this->getOfflineUntil($token);
-
-        if ($offlineUntil === null) {
-            return 0;
-        }
-
         try {
-            $target = now()->parse($offlineUntil);
-            $diff = (int) ceil(now()->diffInDays($target, true));
+            $diff = (int) ceil(now()->diffInDays(now()->parse($offlineUntil), true));
 
             return max(0, $diff);
         } catch (\Throwable) {
@@ -134,36 +162,16 @@ final class LicenseCacheService
         }
     }
 
-    /**
-     * @param  array<string, mixed>  $token
-     */
-    public function detectClockDrift(array $token): bool
+    private function computeStatusHmac(array $data): string
     {
-        try {
-            $cachedAt = $token['cached_at'] ?? null;
-            $serverTime = $token['server_time'] ?? null;
+        $payload = ($data['valid'] ? '1' : '0')
+            .($data['status'] ?? '')
+            .($data['offline_until'] ?? '')
+            .($data['updated_at'] ?? '');
 
-            if ($cachedAt === null || $serverTime === null) {
-                return false;
-            }
-
-            $cachedAtCarbon = now()->parse($cachedAt);
-            $serverTimeCarbon = now()->parse($serverTime);
-
-            $elapsedSinceCached = now()->diffInSeconds($cachedAtCarbon);
-            $elapsedSinceServer = $serverTimeCarbon->diffInSeconds($cachedAtCarbon);
-
-            $clockDrift = abs($elapsedSinceCached - $elapsedSinceServer);
-
-            return $clockDrift > 3600;
-        } catch (\Throwable) {
-            return false;
-        }
+        return hash_hmac('sha256', $payload, $this->getHmacSecret());
     }
 
-    /**
-     * @param  array<string, mixed>  $tokenData
-     */
     private function computeHmac(array $tokenData): string
     {
         $payload = ($tokenData['license_key'] ?? '')
@@ -173,9 +181,6 @@ final class LicenseCacheService
         return hash_hmac('sha256', $payload, $this->getHmacSecret());
     }
 
-    /**
-     * @param  array<string, mixed>  $token
-     */
     private function verifyIntegrity(array $token): bool
     {
         $expectedHmac = $token['hmac'] ?? '';

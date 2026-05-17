@@ -47,6 +47,56 @@ class LicenseCacheServiceTest extends TestCase
         $this->assertArrayHasKey('cached_at', $retrieved);
     }
 
+    public function test_store_and_retrieve_status(): void
+    {
+        $offlineUntil = now()->addDays(7)->toIso8601String();
+
+        $this->cacheService->storeStatus('active', true, $offlineUntil);
+
+        $status = $this->cacheService->retrieveStatus();
+
+        $this->assertNotNull($status);
+        $this->assertTrue($status['valid']);
+        $this->assertSame('active', $status['status']);
+        $this->assertSame($offlineUntil, $status['offline_until']);
+        $this->assertArrayHasKey('sig', $status);
+    }
+
+    public function test_retrieve_status_returns_null_when_tampered(): void
+    {
+        $offlineUntil = now()->addDays(7)->toIso8601String();
+
+        $this->cacheService->storeStatus('active', true, $offlineUntil);
+
+        $data = Cache::store('array')->get(LicenseCacheService::CACHE_KEY_STATUS);
+        $data['status'] = 'expired';
+        Cache::store('array')->put(LicenseCacheService::CACHE_KEY_STATUS, $data, now()->addDays(30));
+
+        $this->assertNull($this->cacheService->retrieveStatus());
+    }
+
+    public function test_has_status_returns_true_when_exists(): void
+    {
+        $this->cacheService->storeStatus('active', true, now()->addDays(7)->toIso8601String());
+
+        $this->assertTrue($this->cacheService->hasStatus());
+    }
+
+    public function test_has_status_returns_false_when_not_exists(): void
+    {
+        $this->assertFalse($this->cacheService->hasStatus());
+    }
+
+    public function test_clear_status_removes_cache(): void
+    {
+        $this->cacheService->storeStatus('active', true, now()->addDays(7)->toIso8601String());
+        $this->assertTrue($this->cacheService->hasStatus());
+
+        $this->cacheService->clearStatus();
+
+        $this->assertFalse($this->cacheService->hasStatus());
+    }
+
     public function test_has_token_returns_true_when_token_exists(): void
     {
         $this->cacheService->storeToken([
@@ -84,41 +134,24 @@ class LicenseCacheServiceTest extends TestCase
 
     public function test_is_within_grace_period_returns_true_when_within(): void
     {
-        $token = [
-            'offline_until' => now()->addDays(5)->toIso8601String(),
-        ];
+        $offlineUntil = now()->addDays(5)->toIso8601String();
 
-        $this->assertTrue($this->cacheService->isWithinGracePeriod($token));
+        $this->assertTrue($this->cacheService->isWithinGracePeriod($offlineUntil));
     }
 
     public function test_is_within_grace_period_returns_false_when_expired(): void
     {
-        $token = [
-            'offline_until' => now()->subDays(1)->toIso8601String(),
-        ];
+        $offlineUntil = now()->subDays(1)->toIso8601String();
 
-        $this->assertFalse($this->cacheService->isWithinGracePeriod($token));
+        $this->assertFalse($this->cacheService->isWithinGracePeriod($offlineUntil));
     }
 
     public function test_grace_days_remaining_returns_correct_count(): void
     {
-        $token = [
-            'offline_until' => now()->addDays(3)->addHour()->toIso8601String(),
-        ];
+        $offlineUntil = now()->addDays(3)->addHour()->toIso8601String();
 
-        $remaining = $this->cacheService->graceDaysRemaining($token);
+        $remaining = $this->cacheService->graceDaysRemaining($offlineUntil);
         $this->assertGreaterThanOrEqual(3, $remaining);
-    }
-
-    public function test_detect_clock_drift_returns_false_when_no_drift(): void
-    {
-        $now = now();
-        $token = [
-            'cached_at' => $now->copy()->toIso8601String(),
-            'server_time' => $now->copy()->toIso8601String(),
-        ];
-
-        $this->assertFalse($this->cacheService->detectClockDrift($token));
     }
 
     public function test_retrieve_token_returns_null_for_corrupted_cache(): void

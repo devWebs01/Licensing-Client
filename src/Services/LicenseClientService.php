@@ -3,8 +3,6 @@
 namespace DevWebs01\LicensingClient\Services;
 
 use DevWebs01\LicensingClient\Enums\LicenseStatus;
-use DevWebs01\LicensingClient\Exceptions\ClockDriftDetectedException;
-use DevWebs01\LicensingClient\Exceptions\LicenseNotActivatedException;
 use DevWebs01\LicensingClient\Exceptions\ServerUnreachableException;
 use DevWebs01\LicensingClient\ValueObjects\ActivationResult;
 use DevWebs01\LicensingClient\ValueObjects\LicenseInfo;
@@ -16,7 +14,7 @@ use Illuminate\Support\Str;
 
 final class LicenseClientService
 {
-    private const REQUEST_TIMEOUT = 10;
+    private ?LicenseInfo $resolvedStatus = null;
 
     public function __construct(
         private readonly LicenseCacheService $cache,
@@ -65,7 +63,7 @@ final class LicenseClientService
             $serverTime = $response->header('Date');
 
             if ($result->success && ! $result->requiresApproval) {
-                $this->storeTokenFromValidation($licenseKey, $fingerprint, $result->offlineUntil, $serverTime);
+                $this->storeLicenseData($licenseKey, $fingerprint, $result->offlineUntil, LicenseStatus::Active->value, [], null, $serverTime);
             }
 
             return $result;
@@ -95,7 +93,7 @@ final class LicenseClientService
             $serverTime = $response->header('Date');
 
             if ($data['valid'] ?? false) {
-                $this->storeTokenFromValidation($licenseKey, $fingerprint, $data['offline_until'] ?? null, $serverTime);
+                $this->storeLicenseData($licenseKey, $fingerprint, $data['offline_until'] ?? null, LicenseStatus::Active->value, [], null, $serverTime);
 
                 return true;
             }
@@ -106,7 +104,7 @@ final class LicenseClientService
         }
     }
 
-    public function validateOnline(): ValidationResult
+    public function sync(): ValidationResult
     {
         $fingerprint = $this->fingerprint->fingerprint();
         $licenseKey = $this->resolveLicenseKey();
@@ -125,13 +123,13 @@ final class LicenseClientService
 
             if ($response->status() === 403) {
                 $this->cache->clearToken();
-                $message = $response->json('message', 'Lisensi tidak valid');
-                $status = $response->json('data.status', 'unknown');
+                $this->cache->clearStatus();
+                $this->resolvedStatus = null;
 
                 return new ValidationResult(
                     valid: false,
-                    status: LicenseStatus::tryFrom($status) ?? LicenseStatus::Unknown,
-                    message: $message,
+                    status: LicenseStatus::tryFrom($response->json('data.status', 'unknown')) ?? LicenseStatus::Unknown,
+                    message: $response->json('message', 'Lisensi tidak valid'),
                 );
             }
 
@@ -143,7 +141,20 @@ final class LicenseClientService
             $serverTime = $response->header('Date');
 
             if ($result->valid) {
-                $this->cacheTokenFromServer($licenseKey, $fingerprint, $result, $serverTime);
+                $offlineUntil = $result->offlineUntil
+                    ? now()->parse($result->offlineUntil)
+                    : now()->addDays($this->graceDays);
+
+                $this->storeLicenseData(
+                    $licenseKey,
+                    $fingerprint,
+                    $offlineUntil->toIso8601String(),
+                    $result->status->value,
+                    $result->features,
+                    $result->product ?? $this->appName,
+                    $serverTime,
+                    $result->expiresAt,
+                );
             }
 
             return $result;
@@ -152,56 +163,28 @@ final class LicenseClientService
         }
     }
 
-    public function validateOffline(): ValidationResult
-    {
-        $token = $this->cache->retrieveToken();
-
-        if ($token === null) {
-            throw new LicenseNotActivatedException;
-        }
-
-        if ($this->cache->detectClockDrift($token)) {
-            throw new ClockDriftDetectedException;
-        }
-
-        $withinGrace = $this->cache->isWithinGracePeriod($token);
-
-        if (! $withinGrace) {
-            return new ValidationResult(
-                valid: false,
-                status: LicenseStatus::GraceWarning,
-                offlineUntil: $token['offline_until'] ?? null,
-                message: 'Grace period telah habis',
-            );
-        }
-
-        return new ValidationResult(
-            valid: true,
-            status: LicenseStatus::Active,
-            offlineUntil: $token['offline_until'] ?? null,
-            product: $token['product'] ?? null,
-            expiresAt: $token['expires_at'] ?? null,
-            features: $token['features'] ?? [],
-            message: 'Valid dari cache offline',
-        );
-    }
-
     public function status(): LicenseInfo
     {
-        $token = $this->cache->retrieveToken();
+        if ($this->resolvedStatus !== null) {
+            return $this->resolvedStatus;
+        }
 
-        if ($token === null) {
-            return new LicenseInfo(
+        $statusData = $this->cache->retrieveStatus();
+
+        if ($statusData === null) {
+            $this->resolvedStatus = new LicenseInfo(
                 isValid: false,
                 status: LicenseStatus::NotActivated,
                 requiresOnlineRefresh: true,
             );
+
+            return $this->resolvedStatus;
         }
 
-        $withinGrace = $this->cache->isWithinGracePeriod($token);
-        $daysRemaining = $this->cache->graceDaysRemaining($token);
+        $withinGrace = $this->cache->isWithinGracePeriod($statusData['offline_until']);
+        $daysRemaining = $this->cache->graceDaysRemaining($statusData['offline_until']);
 
-        $status = LicenseStatus::tryFrom($token['status'] ?? '') ?? LicenseStatus::Unknown;
+        $status = LicenseStatus::tryFrom($statusData['status'] ?? '') ?? LicenseStatus::Unknown;
 
         if ($withinGrace && $daysRemaining <= 3 && $daysRemaining > 0) {
             $status = LicenseStatus::GraceWarning;
@@ -211,22 +194,24 @@ final class LicenseClientService
             $status = LicenseStatus::Locked;
         }
 
-        return new LicenseInfo(
+        $this->resolvedStatus = new LicenseInfo(
             isValid: $withinGrace,
             status: $status,
-            offlineUntil: $token['offline_until'] ?? null,
+            offlineUntil: $statusData['offline_until'] ?? null,
             isWithinGracePeriod: $withinGrace,
             graceDaysRemaining: $daysRemaining,
-            product: $token['product'] ?? null,
-            cachedAt: $token['cached_at'] ?? null,
+            product: null,
+            cachedAt: $statusData['updated_at'] ?? null,
             requiresOnlineRefresh: ! $withinGrace,
         );
+
+        return $this->resolvedStatus;
     }
 
     public function refresh(): bool
     {
         try {
-            $result = $this->validateOnline();
+            $result = $this->sync();
 
             return $result->valid;
         } catch (ServerUnreachableException) {
@@ -249,6 +234,8 @@ final class LicenseClientService
 
             if ($response->successful()) {
                 $this->cache->clearToken();
+                $this->cache->clearStatus();
+                $this->resolvedStatus = null;
 
                 return true;
             }
@@ -274,18 +261,29 @@ final class LicenseClientService
 
     public function info(): LicenseInfo
     {
-        return $this->status();
+        $info = $this->status();
+
+        $token = $this->cache->retrieveToken();
+
+        if ($token !== null && $info->product === null) {
+            return new LicenseInfo(
+                isValid: $info->isValid,
+                status: $info->status,
+                offlineUntil: $info->offlineUntil,
+                isWithinGracePeriod: $info->isWithinGracePeriod,
+                graceDaysRemaining: $info->graceDaysRemaining,
+                product: $token['product'] ?? null,
+                cachedAt: $token['cached_at'] ?? null,
+                requiresOnlineRefresh: $info->requiresOnlineRefresh,
+            );
+        }
+
+        return $info;
     }
 
     public function isValid(): bool
     {
-        try {
-            $result = $this->validateOffline();
-
-            return $result->valid;
-        } catch (LicenseNotActivatedException|ClockDriftDetectedException) {
-            return false;
-        }
+        return $this->status()->isValid;
     }
 
     private function signedPost(string $path, array $data): Response
@@ -335,40 +333,36 @@ final class LicenseClientService
         return $request->post($url, $data);
     }
 
-    private function storeTokenFromValidation(string $licenseKey, string $fingerprint, ?string $offlineUntil, ?string $serverTime = null): void
-    {
+    private function storeLicenseData(
+        string $licenseKey,
+        string $fingerprint,
+        ?string $offlineUntil,
+        string $status,
+        array $features,
+        ?string $product = null,
+        ?string $serverTime = null,
+        ?string $expiresAt = null,
+    ): void {
         $offlineUntilDate = $offlineUntil
             ? now()->parse($offlineUntil)
             : now()->addDays($this->graceDays);
 
-        $this->cache->storeToken([
-            'license_key' => $licenseKey,
-            'fingerprint' => $fingerprint,
-            'status' => LicenseStatus::Active->value,
-            'product' => $this->appName,
-            'expires_at' => $offlineUntilDate->toDateString(),
-            'offline_until' => $offlineUntilDate->toIso8601String(),
-            'server_time' => $this->resolveServerTime($serverTime),
-            'features' => [],
-        ]);
-    }
+        $offlineUntilStr = $offlineUntilDate->toIso8601String();
 
-    private function cacheTokenFromServer(string $licenseKey, string $fingerprint, ValidationResult $result, ?string $serverTime = null): void
-    {
-        $offlineUntil = $result->offlineUntil
-            ? now()->parse($result->offlineUntil)
-            : now()->addDays($this->graceDays);
+        $this->cache->storeStatus($status, true, $offlineUntilStr);
 
         $this->cache->storeToken([
             'license_key' => $licenseKey,
             'fingerprint' => $fingerprint,
-            'status' => $result->status->value,
-            'product' => $result->product ?? $this->appName,
-            'expires_at' => $result->expiresAt,
-            'offline_until' => $offlineUntil->toIso8601String(),
+            'status' => $status,
+            'product' => $product ?? $this->appName,
+            'expires_at' => $expiresAt ?? $offlineUntilDate->toDateString(),
+            'offline_until' => $offlineUntilStr,
             'server_time' => $this->resolveServerTime($serverTime),
-            'features' => $result->features,
+            'features' => $features,
         ]);
+
+        $this->resolvedStatus = null;
     }
 
     private function resolveServerTime(?string $httpDate): string
