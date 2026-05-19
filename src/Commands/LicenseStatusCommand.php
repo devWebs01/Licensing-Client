@@ -29,7 +29,7 @@ final class LicenseStatusCommand extends Command
         $this->components->twoColumnDetail('Status', $info->status->label());
         $this->components->twoColumnDetail('Product', $info->product ?? '-');
         $this->components->twoColumnDetail('License Key', $this->maskLicenseKey());
-        $this->components->twoColumnDetail('Expires At', $info->offlineUntil ?? '-');
+        $this->components->twoColumnDetail('Expires At', $info->expiresAt ?? '-');
         $this->components->twoColumnDetail('Offline Until', $info->offlineUntil ?? '-');
         $this->components->twoColumnDetail('Cache Age', $this->getCacheAge($info->cachedAt));
         $this->components->twoColumnDetail('Device', "{$fingerprint} ({$this->getHostname()})");
