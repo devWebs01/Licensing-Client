@@ -200,12 +200,12 @@ final class LicenseCacheService
 
     private function getHmacSecret(): string
     {
-        $appKey = config('app.key');
+        $secret = config('licensing-client.hmac_secret') ?? config('app.key');
 
-        if (! $appKey) {
-            throw new \RuntimeException('APP_KEY tidak dikonfigurasi. Setel APP_KEY sebelum menggunakan lisensi offline.');
+        if (! $secret) {
+            throw new \RuntimeException('APP_KEY atau Licensing Secret tidak dikonfigurasi.');
         }
 
-        return $appKey;
+        return $secret;
     }
 }

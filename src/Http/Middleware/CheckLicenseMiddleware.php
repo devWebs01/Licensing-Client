@@ -28,13 +28,19 @@ class CheckLicenseMiddleware
 
         if ($info->isValid && ! $info->status->isBlocking()) {
             if ($info->isWithinGracePeriod && $info->graceDaysRemaining <= 3) {
-                session()->flash(
-                    'license_warning',
-                    "Lisensi akan expired dalam {$info->graceDaysRemaining} hari. Hubungi admin."
-                );
+                if ($request->hasSession()) {
+                    $request->session()->flash(
+                        'license_warning',
+                        "Lisensi akan expired dalam {$info->graceDaysRemaining} hari. Hubungi admin."
+                    );
+                }
             }
 
             return $next($request);
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json(['error' => 'License invalid', 'reason' => $info->status->value], 403);
         }
 
         if ($info->status === LicenseStatus::NotActivated) {

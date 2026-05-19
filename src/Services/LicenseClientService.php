@@ -24,15 +24,23 @@ final class LicenseClientService
 
     public function activate(string $licenseKey): ActivationResult
     {
-        $data = $this->fetchFromGithub($licenseKey);
+        $response = $this->fetchFromGithub($licenseKey);
 
-        if ($data === null) {
+        if ($response['status'] === 'error') {
+            return new ActivationResult(
+                success: false,
+                message: 'Gagal menghubungi server lisensi. Silakan coba lagi nanti.',
+            );
+        }
+
+        if ($response['status'] === 'not_found' || $response['data'] === null) {
             return new ActivationResult(
                 success: false,
                 message: 'Lisensi tidak ditemukan. Periksa license key Anda.',
             );
         }
 
+        $data = $response['data'];
         $status = $data['status'] ?? 'unknown';
 
         if ($status !== 'active') {
@@ -66,9 +74,17 @@ final class LicenseClientService
     {
         $licenseKey = $this->resolveLicenseKey();
 
-        $data = $this->fetchFromGithub($licenseKey);
+        $response = $this->fetchFromGithub($licenseKey);
 
-        if ($data === null) {
+        if ($response['status'] === 'error') {
+            return new ValidationResult(
+                valid: true,
+                status: LicenseStatus::Unknown,
+                message: 'Gagal menghubungi server lisensi. Menggunakan mode offline.',
+            );
+        }
+
+        if ($response['status'] === 'not_found' || $response['data'] === null) {
             $this->cache->clearToken();
             $this->cache->clearStatus();
             $this->resolvedStatus = null;
@@ -80,6 +96,7 @@ final class LicenseClientService
             );
         }
 
+        $data = $response['data'];
         $status = LicenseStatus::tryFrom($data['status'] ?? '') ?? LicenseStatus::Unknown;
         $expiresAt = $data['expires_at'] ?? null;
         $valid = $status === LicenseStatus::Active && (! $expiresAt || now()->lessThanOrEqualTo($expiresAt));
@@ -195,7 +212,7 @@ final class LicenseClientService
         return $this->status()->isValid;
     }
 
-    private function fetchFromGithub(string $licenseKey): ?array
+    private function fetchFromGithub(string $licenseKey): array
     {
         $hash = sha1($licenseKey);
         $base = rtrim($this->githubRawBase, '/');
@@ -205,12 +222,16 @@ final class LicenseClientService
             $response = Http::timeout(10)->get($url);
 
             if ($response->successful()) {
-                return $response->json();
+                return ['status' => 'success', 'data' => $response->json()];
             }
 
-            return null;
+            if ($response->status() === 404) {
+                return ['status' => 'not_found', 'data' => null];
+            }
+
+            return ['status' => 'error', 'data' => null];
         } catch (ConnectionException) {
-            return null;
+            return ['status' => 'error', 'data' => null];
         }
     }
 
