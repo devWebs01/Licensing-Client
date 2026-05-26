@@ -1,13 +1,13 @@
 # Laravel Licensing Client
 
-**Package:** `devwebs01/laravel-license-client`  
+**Package:** `devwebs01/gh-license`  
 **Version:** 1.1.0  
 **Architecture:** GitHub Raw JSON Sync — no API server required.
 
 ## Installation
 
 ```bash
-composer require devwebs01/laravel-license-client
+composer require devwebs01/gh-license
 ```
 
 ## Configuration
