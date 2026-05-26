@@ -2,7 +2,13 @@
     "name": "devwebs01/laravel-license-client",
     "description": "Simple licensing client for Laravel applications - license validation, device fingerprinting, offline grace period, and feature flags.",
     "type": "library",
+    "keywords": ["laravel", "license", "licensing", "validation", "activation", "device-fingerprinting"],
     "license": "MIT",
+    "homepage": "https://github.com/devWebs01/Laravel-Licensing-Client",
+    "support": {
+        "issues": "https://github.com/devWebs01/Laravel-Licensing-Client/issues",
+        "source": "https://github.com/devWebs01/Laravel-Licensing-Client"
+    },
     "authors": [
         {
             "name": "DevWebs01",
