@@ -22,13 +22,14 @@ final class LicenseCacheService
         private readonly ?string $cacheStore = null,
     ) {}
 
-    public function storeStatus(string $status, bool $valid, string $offlineUntil): void
+    public function storeStatus(string $status, bool $valid, string $offlineUntil, ?string $serverUpdatedAt = null): void
     {
         $data = [
             'valid' => $valid,
             'status' => $status,
             'offline_until' => $offlineUntil,
             'updated_at' => now()->toIso8601String(),
+            'server_updated_at' => $serverUpdatedAt,
         ];
 
         $data['sig'] = $this->computeStatusHmac($data);
@@ -174,14 +175,15 @@ final class LicenseCacheService
     }
 
     /**
-     * @param  array{valid: bool, status: string, offline_until: string, updated_at: string}  $data
+     * @param  array{valid: bool, status: string, offline_until: string, updated_at: string, server_updated_at?: string|null}  $data
      */
     private function computeStatusHmac(array $data): string
     {
         $payload = ($data['valid'] ? '1' : '0')
             .$data['status']
             .$data['offline_until']
-            .$data['updated_at'];
+            .$data['updated_at']
+            .($data['server_updated_at'] ?? '');
 
         return hash_hmac('sha256', $payload, $this->getHmacSecret());
     }
@@ -193,7 +195,9 @@ final class LicenseCacheService
     {
         $payload = ($tokenData['license_key'] ?? '')
             .($tokenData['fingerprint'] ?? '')
-            .($tokenData['offline_until'] ?? '');
+            .($tokenData['offline_until'] ?? '')
+            .($tokenData['max_devices'] ?? '')
+            .($tokenData['server_updated_at'] ?? '');
 
         return hash_hmac('sha256', $payload, $this->getHmacSecret());
     }
@@ -211,7 +215,9 @@ final class LicenseCacheService
 
         $payload = ($token['license_key'] ?? '')
             .($token['fingerprint'] ?? '')
-            .($token['offline_until'] ?? '');
+            .($token['offline_until'] ?? '')
+            .($token['max_devices'] ?? '')
+            .($token['server_updated_at'] ?? '');
 
         $computedHmac = hash_hmac('sha256', $payload, $this->getHmacSecret());
 

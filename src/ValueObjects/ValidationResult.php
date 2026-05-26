@@ -14,6 +14,11 @@ readonly class ValidationResult
         public ?string $offlineUntil = null,
         public ?string $expiresAt = null,
         public ?string $message = null,
+        public bool $deviceLimitReached = false,
+        public ?int $maxDevices = null,
+        public ?int $registeredDevicesCount = null,
+        public ?string $serverUpdatedAt = null,
+        public array $features = [],
     ) {}
 
     /**

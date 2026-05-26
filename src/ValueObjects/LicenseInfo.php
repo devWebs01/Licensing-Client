@@ -17,5 +17,11 @@ readonly class LicenseInfo
         public ?string $product = null,
         public ?string $cachedAt = null,
         public bool $requiresOnlineRefresh = false,
+        public ?int $maxDevices = null,
+        public ?int $registeredDevicesCount = null,
+        public ?string $serverUpdatedAt = null,
+        public ?string $expiresAt = null,
+        public bool $deviceLimitReached = false,
+        public array $features = [],
     ) {}
 }

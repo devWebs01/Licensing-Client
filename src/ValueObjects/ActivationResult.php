@@ -10,5 +10,6 @@ readonly class ActivationResult
         public bool $success,
         public ?string $offlineUntil = null,
         public ?string $message = null,
+        public bool $deviceLimitReached = false,
     ) {}
 }

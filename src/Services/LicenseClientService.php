@@ -62,10 +62,32 @@ final class LicenseClientService
             );
         }
 
+        $maxDevices = (int) ($data['max_devices'] ?? 0);
+        $registeredDevices = (int) ($data['registered_devices_count'] ?? 0);
+
+        if ($maxDevices > 0 && $registeredDevices >= $maxDevices) {
+            return new ActivationResult(
+                success: false,
+                message: 'Batas perangkat sudah tercapai ('.$maxDevices.'). Hubungi administrator untuk menambah kapasitas.',
+                deviceLimitReached: true,
+            );
+        }
+
         $fingerprint = $this->fingerprint->fingerprint();
         $offlineUntil = $this->calculateOfflineUntil($expiresAt);
 
-        $this->storeLicenseData($licenseKey, $fingerprint, LicenseStatus::Active->value, $offlineUntil, $expiresAt);
+        $this->storeLicenseData(
+            licenseKey: $licenseKey,
+            fingerprint: $fingerprint,
+            status: LicenseStatus::Active->value,
+            offlineUntil: $offlineUntil,
+            expiresAt: $expiresAt,
+            maxDevices: $maxDevices,
+            registeredDevicesCount: $registeredDevices,
+            product: $data['product_name'] ?? null,
+            features: $data['features'] ?? [],
+            serverUpdatedAt: $data['updated_at'] ?? null,
+        );
 
         return new ActivationResult(
             success: true,
@@ -104,11 +126,26 @@ final class LicenseClientService
         $expiresAt = $data['expires_at'] ?? null;
         $valid = $status === LicenseStatus::Active && (! $expiresAt || now()->lessThanOrEqualTo($expiresAt));
 
+        $maxDevices = (int) ($data['max_devices'] ?? 0);
+        $registeredDevices = (int) ($data['registered_devices_count'] ?? 0);
+        $deviceLimitReached = $maxDevices > 0 && $registeredDevices >= $maxDevices;
+
         if ($valid) {
             $fingerprint = $this->fingerprint->fingerprint();
             $offlineUntil = $this->calculateOfflineUntil($expiresAt);
 
-            $this->storeLicenseData($licenseKey, $fingerprint, LicenseStatus::Active->value, $offlineUntil, $expiresAt);
+            $this->storeLicenseData(
+                licenseKey: $licenseKey,
+                fingerprint: $fingerprint,
+                status: LicenseStatus::Active->value,
+                offlineUntil: $offlineUntil,
+                expiresAt: $expiresAt,
+                maxDevices: $maxDevices,
+                registeredDevicesCount: $registeredDevices,
+                product: $data['product_name'] ?? null,
+                features: $data['features'] ?? [],
+                serverUpdatedAt: $data['updated_at'] ?? null,
+            );
         } else {
             $this->cache->clearToken();
             $this->cache->clearStatus();
@@ -120,6 +157,11 @@ final class LicenseClientService
             status: $status,
             offlineUntil: $valid ? $this->calculateOfflineUntil($expiresAt) : null,
             expiresAt: $expiresAt,
+            deviceLimitReached: $deviceLimitReached,
+            maxDevices: $maxDevices,
+            registeredDevicesCount: $registeredDevices,
+            serverUpdatedAt: $data['updated_at'] ?? null,
+            features: $data['features'] ?? [],
         );
     }
 
@@ -154,15 +196,48 @@ final class LicenseClientService
             $status = LicenseStatus::Locked;
         }
 
+        $product = null;
+        $maxDevices = null;
+        $registeredDevicesCount = null;
+        $serverUpdatedAt = null;
+        $expiresAt = null;
+        $features = [];
+
+        try {
+            $token = $this->cache->retrieveToken();
+
+            if ($token !== null) {
+                $product = $token['product'] ?? null;
+                $maxDevices = $token['max_devices'] ?? null;
+                $registeredDevicesCount = $token['registered_devices_count'] ?? null;
+                $serverUpdatedAt = $token['server_updated_at'] ?? null;
+                $expiresAt = $token['expires_at'] ?? null;
+                $features = $token['features'] ?? [];
+            }
+        } catch (CorruptedTokenException) {
+        }
+
+        $deviceLimitReached = $maxDevices !== null && $registeredDevicesCount !== null
+            && $maxDevices > 0 && $registeredDevicesCount >= $maxDevices;
+
+        $staleCache = $serverUpdatedAt !== null && $statusData['updated_at'] !== null
+            && $statusData['updated_at'] < $serverUpdatedAt;
+
         $this->resolvedStatus = new LicenseInfo(
             isValid: $withinGrace,
             status: $status,
             offlineUntil: $statusData['offline_until'] ?? null,
             isWithinGracePeriod: $withinGrace,
             graceDaysRemaining: $daysRemaining,
-            product: null,
+            product: $product,
             cachedAt: $statusData['updated_at'] ?? null,
-            requiresOnlineRefresh: ! $withinGrace,
+            requiresOnlineRefresh: ! $withinGrace || $staleCache,
+            maxDevices: $maxDevices,
+            registeredDevicesCount: $registeredDevicesCount,
+            serverUpdatedAt: $serverUpdatedAt,
+            expiresAt: $expiresAt,
+            deviceLimitReached: $deviceLimitReached,
+            features: $features,
         );
 
         return $this->resolvedStatus;
@@ -195,28 +270,7 @@ final class LicenseClientService
 
     public function info(): LicenseInfo
     {
-        $info = $this->status();
-
-        try {
-            $token = $this->cache->retrieveToken();
-        } catch (CorruptedTokenException) {
-            $token = null;
-        }
-
-        if ($token !== null && $info->product === null) {
-            return new LicenseInfo(
-                isValid: $info->isValid,
-                status: $info->status,
-                offlineUntil: $info->offlineUntil,
-                isWithinGracePeriod: $info->isWithinGracePeriod,
-                graceDaysRemaining: $info->graceDaysRemaining,
-                product: $token['product'] ?? null,
-                cachedAt: $token['cached_at'] ?? null,
-                requiresOnlineRefresh: $info->requiresOnlineRefresh,
-            );
-        }
-
-        return $info;
+        return $this->status();
     }
 
     public function isValid(): bool
@@ -250,23 +304,34 @@ final class LicenseClientService
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $features
+     */
     private function storeLicenseData(
         string $licenseKey,
         string $fingerprint,
         string $status,
         string $offlineUntil,
         ?string $expiresAt = null,
+        ?int $maxDevices = null,
+        ?int $registeredDevicesCount = null,
+        ?string $product = null,
+        array $features = [],
+        ?string $serverUpdatedAt = null,
     ): void {
-        $this->cache->storeStatus($status, true, $offlineUntil);
+        $this->cache->storeStatus($status, true, $offlineUntil, $serverUpdatedAt);
 
         $this->cache->storeToken([
             'license_key' => $licenseKey,
             'fingerprint' => $fingerprint,
             'status' => $status,
-            'product' => $this->appName,
+            'product' => $product ?? $this->appName,
             'expires_at' => $expiresAt ?? now()->addDays($this->graceDays)->toDateString(),
             'offline_until' => $offlineUntil,
-            'features' => [],
+            'max_devices' => $maxDevices,
+            'registered_devices_count' => $registeredDevicesCount,
+            'server_updated_at' => $serverUpdatedAt,
+            'features' => $features,
         ]);
 
         $this->resolvedStatus = null;
